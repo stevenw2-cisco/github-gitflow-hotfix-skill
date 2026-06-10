@@ -1,0 +1,4 @@
+interface:
+  display_name: "Gitflow Hotfix"
+  short_description: "Safe Gitflow hotfix branch and PR workflow"
+  default_prompt: "Use $github-gitflow-hotfix-skill to prepare and create a Gitflow hotfix."
