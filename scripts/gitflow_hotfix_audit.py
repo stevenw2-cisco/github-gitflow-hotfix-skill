@@ -13,12 +13,13 @@ import json
 import re
 import subprocess
 import sys
+import time
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
 
-GITFLOW_README_PATTERNS = (
+GITFLOW_DOCUMENT_PATTERNS = (
     re.compile(r"\bgit[- ]?flow\b", re.IGNORECASE),
     re.compile(r"\bhotfix/", re.IGNORECASE),
     re.compile(r"\brelease/", re.IGNORECASE),
@@ -26,6 +27,7 @@ GITFLOW_README_PATTERNS = (
 HOTFIX_PATTERN = re.compile(r"^hotfix/[A-Za-z0-9._/-]+$")
 PRODUCTION_CANDIDATES = ("main", "master")
 DEVELOPMENT_CANDIDATES = ("develop", "development", "dev")
+FETCH_HEAD_MAX_AGE_SECONDS = 24 * 60 * 60
 
 
 @dataclass
@@ -135,20 +137,40 @@ def remote_default_branch(remote: str, cwd: Path) -> str | None:
     return value.removeprefix(prefix)
 
 
-def readme_gitflow_evidence(repo_root: Path) -> list[str]:
-    """Return README evidence strings that indicate a Gitflow process."""
+def gitflow_document_evidence(repo_root: Path) -> list[str]:
+    """Return top-level documentation evidence that indicates Gitflow."""
     evidence: list[str] = []
     for path in sorted(repo_root.iterdir()):
-        if not path.is_file() or not path.name.lower().startswith("readme"):
+        normalized_name = path.name.lower()
+        is_candidate = normalized_name.startswith("readme") or normalized_name.startswith("contributing")
+        if not path.is_file() or not is_candidate:
             continue
         try:
             text = path.read_text(encoding="utf-8", errors="ignore")
         except OSError:
             continue
-        matched = [pattern.pattern for pattern in GITFLOW_README_PATTERNS if pattern.search(text)]
+        matched = [pattern.pattern for pattern in GITFLOW_DOCUMENT_PATTERNS if pattern.search(text)]
         if matched:
             evidence.append(f"{path.name} mentions Gitflow-style terms")
     return evidence
+
+
+def fetch_head_warning(repo_root: Path, max_age_seconds: int = FETCH_HEAD_MAX_AGE_SECONDS) -> str | None:
+    """Return a warning when local remote refs may not reflect the remote."""
+    fetch_head_path_text = git_output(["rev-parse", "--git-path", "FETCH_HEAD"], repo_root)
+    if not fetch_head_path_text:
+        return None
+
+    fetch_head_path = Path(fetch_head_path_text)
+    if not fetch_head_path.is_absolute():
+        fetch_head_path = repo_root / fetch_head_path
+    if not fetch_head_path.exists():
+        return "No FETCH_HEAD found. Run `git fetch --prune origin` before relying on remote branch existence."
+
+    age_seconds = time.time() - fetch_head_path.stat().st_mtime
+    if age_seconds > max_age_seconds:
+        return "FETCH_HEAD is older than 24 hours. Run `git fetch --prune origin` before relying on remote branch existence."
+    return None
 
 
 def valid_hotfix_name(branch: str) -> bool:
@@ -166,19 +188,26 @@ def valid_hotfix_name(branch: str) -> bool:
     )
 
 
-def detect_production_branch(explicit: str | None, remote: str, cwd: Path) -> tuple[str | None, str | None]:
+def detect_production_branch(
+    explicit: str | None,
+    remote: str,
+    remote_default: str | None,
+    cwd: Path,
+) -> tuple[str | None, str | None, str | None]:
     """Detect the production branch or return an ambiguity message."""
     if explicit:
         if first_existing_ref(explicit, remote, cwd):
-            return explicit, None
-        return None, f"Explicit production branch '{explicit}' was not found locally or under {remote}."
+            return explicit, None, None
+        return None, None, f"Explicit production branch '{explicit}' was not found locally or under {remote}."
 
     candidates = [branch for branch in PRODUCTION_CANDIDATES if first_existing_ref(branch, remote, cwd)]
     if len(candidates) == 1:
-        return candidates[0], None
+        return candidates[0], None, None
     if len(candidates) > 1:
-        return None, f"Both production candidates exist: {', '.join(candidates)}."
-    return None, "No production branch candidate was found. Expected main or master."
+        if remote_default in candidates:
+            return remote_default, f"Both production candidates exist; using {remote}/HEAD ({remote_default}).", None
+        return None, None, f"Both production candidates exist: {', '.join(candidates)}."
+    return None, None, "No production branch candidate was found. Expected main or master."
 
 
 def detect_development_branch(
@@ -186,32 +215,54 @@ def detect_development_branch(
     production: str,
     remote: str,
     remote_default: str | None,
-    readme_evidence: list[str],
+    gitflow_evidence: list[str],
     cwd: Path,
-) -> tuple[str | None, list[str], str | None]:
+) -> tuple[str | None, list[str], list[str], str | None]:
     """Detect the development branch and return evidence used."""
     evidence: list[str] = []
+    warnings: list[str] = []
+    remote_default_is_development = (
+        bool(remote_default)
+        and remote_default != production
+        and bool(first_existing_ref(remote_default or "", remote, cwd))
+    )
+
     if explicit:
         if explicit == production:
-            return None, evidence, "Development branch must differ from production."
+            return None, evidence, warnings, "Development branch must differ from production."
         if first_existing_ref(explicit, remote, cwd):
-            return explicit, ["explicit development branch supplied"], None
-        return None, evidence, f"Explicit development branch '{explicit}' was not found locally or under {remote}."
+            if remote_default_is_development:
+                evidence.append(f"{remote}/HEAD points to {remote_default}, which differs from production")
+                if explicit != remote_default:
+                    warnings.append(
+                        f"Explicit development branch '{explicit}' differs from {remote}/HEAD ({remote_default})."
+                    )
+            evidence.extend(gitflow_evidence)
+            if not evidence:
+                warnings.append("Explicit development branch supplied; this is not Gitflow evidence by itself.")
+            return explicit, evidence, warnings, None
+        return None, evidence, warnings, f"Explicit development branch '{explicit}' was not found locally or under {remote}."
 
-    if remote_default and remote_default != production and first_existing_ref(remote_default, remote, cwd):
+    if remote_default_is_development:
         evidence.append(f"{remote}/HEAD points to {remote_default}, which differs from production")
-        return remote_default, evidence, None
+        return remote_default, evidence, warnings, None
 
-    if readme_evidence:
+    if gitflow_evidence:
         candidates = [branch for branch in DEVELOPMENT_CANDIDATES if branch != production and first_existing_ref(branch, remote, cwd)]
         if len(candidates) == 1:
-            evidence.extend(readme_evidence)
+            evidence.extend(gitflow_evidence)
             evidence.append(f"development branch candidate exists: {candidates[0]}")
-            return candidates[0], evidence, None
+            return candidates[0], evidence, warnings, None
         if len(candidates) > 1:
-            return None, evidence, f"Multiple development branch candidates exist: {', '.join(candidates)}."
+            return None, evidence, warnings, f"Multiple development branch candidates exist: {', '.join(candidates)}."
 
-    return None, evidence, "Could not determine a development branch from remote default or README Gitflow evidence."
+    return (
+        None,
+        evidence,
+        warnings,
+        "Could not determine a development branch from remote default or README/CONTRIBUTING Gitflow evidence. "
+        f"If {remote}/HEAD is missing, run `git remote set-head {remote} -a`, or pass explicit branches with independent Gitflow documentation evidence.",
+    )
 
 
 def rev_list(ref: str, excluded_ref: str, cwd: Path) -> set[str] | None:
@@ -225,7 +276,7 @@ def rev_list(ref: str, excluded_ref: str, cwd: Path) -> set[str] | None:
 
 
 def validate_lineage(result: AuditResult, cwd: Path) -> None:
-    """Validate that the hotfix branch is based on production, not development."""
+    """Validate production reachability and reject development-only history."""
     if not result.hotfix_ref or not result.production_ref or not result.development_ref:
         result.fail(4, "Cannot validate lineage because one or more refs are missing.")
         return
@@ -265,23 +316,34 @@ def audit(args: argparse.Namespace) -> AuditResult:
     repo_root = Path(repo_root_text)
     remote = args.remote
     result.remote_default_branch = remote_default_branch(remote, repo_root)
-    readme_evidence = readme_gitflow_evidence(repo_root)
+    gitflow_evidence = gitflow_document_evidence(repo_root)
+    stale_fetch_warning = fetch_head_warning(repo_root)
+    if stale_fetch_warning:
+        result.warnings.append(stale_fetch_warning)
 
-    production, production_error = detect_production_branch(args.main, remote, repo_root)
+    production, production_warning, production_error = detect_production_branch(
+        args.main,
+        remote,
+        result.remote_default_branch,
+        repo_root,
+    )
+    if production_warning:
+        result.warnings.append(production_warning)
     if production_error:
         result.fail(2, production_error)
         return result
     result.production_branch = production
     result.production_ref = first_existing_ref(production or "", remote, repo_root)
 
-    development, development_evidence, development_error = detect_development_branch(
+    development, development_evidence, development_warnings, development_error = detect_development_branch(
         args.develop,
         production or "",
         remote,
         result.remote_default_branch,
-        readme_evidence,
+        gitflow_evidence,
         repo_root,
     )
+    result.warnings.extend(development_warnings)
     if development_error:
         result.fail(2, development_error)
         return result

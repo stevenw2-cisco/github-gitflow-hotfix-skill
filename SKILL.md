@@ -25,7 +25,7 @@ When working outside Codex:
 - Require a known production branch, usually `main` or `master`.
 - Require a known development branch that differs from production, usually `develop`.
 - Require hotfix branches to use `hotfix/<branchname>`.
-- Existing hotfix branches must have production lineage. If lineage is ambiguous or development-based, stop and ask the user.
+- Existing hotfix branches must be production-reachable and must not contain development-only history. If lineage is ambiguous or development-based, stop and ask the user.
 - Commit, push, and create PRs only while the current branch is the hotfix branch.
 - Never force push unless the user explicitly approves it first.
 - If repo-local instructions conflict with the mandatory hotfix branch pattern, stop and ask the user.
@@ -55,7 +55,7 @@ Exit codes:
 | 4 | Required git repository data could not be read. |
 | 5 | The hotfix branch exists but does not satisfy production lineage. |
 
-The helper does not fetch, create branches, check out branches, or edit files.
+The helper does not fetch, create branches, check out branches, or edit files. If it warns that `FETCH_HEAD` is missing or stale, run `git fetch --prune origin` and rerun the audit before creating or tracking any hotfix branch.
 
 ## Workflow
 
@@ -72,8 +72,9 @@ The helper does not fetch, create branches, check out branches, or edit files.
 
 2. Establish Gitflow.
    - Identify production as exactly one of `main` or `master`, unless the user supplies a repo-specific production branch.
-   - Identify development from `origin/HEAD` when it differs from production, or from root README Gitflow wording plus a real development branch.
-   - Treat README wording such as `gitflow`, `git flow`, `hotfix/`, or Gitflow-style release/hotfix process descriptions as Gitflow evidence.
+   - Identify development from `origin/HEAD` when it differs from production, or from root README/CONTRIBUTING Gitflow wording plus a real development branch.
+   - Treat README or CONTRIBUTING wording such as `gitflow`, `git flow`, `hotfix/`, or Gitflow-style release/hotfix process descriptions as Gitflow evidence.
+   - Treat `--main` and `--develop` as branch overrides only. They do not prove Gitflow by themselves.
    - If signals are missing or mixed, stop and ask the user to confirm production and development branches.
 
 3. Resolve the hotfix branch.
@@ -119,13 +120,18 @@ The helper does not fetch, create branches, check out branches, or edit files.
      - production, such as `main` or `master`
      - development, such as `develop`
      - each user-specified release branch
-   - Use `.github/pull_request_template.md` exactly when it exists.
+   - Use `.github/pull_request_template.md` exactly when it exists. Materialize it into an editable body file, fill every required placeholder, then pass that file to `gh`:
+     ```bash
+     cp .github/pull_request_template.md /tmp/hotfix-pr-body.md
+     ${EDITOR:-vi} /tmp/hotfix-pr-body.md
+     ```
    - Use explicit bases and heads:
      ```bash
-     gh pr create --base main --head hotfix/<branchname> --title "<title>" --body-file <body-file>
-     gh pr create --base develop --head hotfix/<branchname> --title "<title>" --body-file <body-file>
-     gh pr create --base release/<name> --head hotfix/<branchname> --title "<title>" --body-file <body-file>
+     gh pr create --base main --head hotfix/<branchname> --title "<title>" --body-file /tmp/hotfix-pr-body.md
+     gh pr create --base develop --head hotfix/<branchname> --title "<title>" --body-file /tmp/hotfix-pr-body.md
+     gh pr create --base release/<name> --head hotfix/<branchname> --title "<title>" --body-file /tmp/hotfix-pr-body.md
      ```
+   - If the direct development PR conflicts, keep the production PR as the source of truth. After the production PR merges, create a separate merge-forward branch from development that merges production back into development, then open that PR to development.
    - Return every PR URL and note which target branch each PR uses.
 
 ## Stop And Ask

@@ -46,11 +46,13 @@ All agents should stop and ask the user when Gitflow cannot be proven, hotfix li
 
 ## Validation
 
-Validate the skill metadata:
+Validate the skill metadata with the skill validator available in your agent environment. In this author's local Codex setup that command is:
 
 ```bash
 python3.11 /Users/stevenw2/.codex/skills/.system/skill-creator/scripts/quick_validate.py .
 ```
+
+If that path does not exist, replace it with your local Codex skill validator path or skip this check for non-Codex usage.
 
 Compile-check the helper without writing bytecode into the repo:
 
@@ -63,4 +65,10 @@ with tempfile.TemporaryDirectory(dir="/private/tmp") as tmp:
     py_compile.compile("scripts/gitflow_hotfix_audit.py", cfile=str(Path(tmp) / "gitflow_hotfix_audit.pyc"), doraise=True)
 print("py_compile ok")
 PY
+```
+
+Run the audit helper tests:
+
+```bash
+python3.11 -B -m unittest tests/test_gitflow_hotfix_audit.py
 ```
