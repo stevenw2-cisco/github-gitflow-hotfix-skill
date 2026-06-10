@@ -72,3 +72,7 @@ Run the audit helper tests:
 ```bash
 python3.11 -B -m unittest tests/test_gitflow_hotfix_audit.py
 ```
+
+## Dependencies
+
+- MCP dependencies: None detected.
