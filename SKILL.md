@@ -1,11 +1,22 @@
 ---
 name: github-gitflow-hotfix-skill
-description: Manage GitHub hotfix workflows for repositories that use Gitflow. Use when Codex needs to verify Gitflow, create or validate hotfix branches, enforce production-branch lineage, commit and push a hotfix, or create hotfix pull requests back to production, development, and release branches.
+description: Manage GitHub hotfix workflows for repositories that use Gitflow. Use when an AI coding agent needs to verify Gitflow, create or validate hotfix branches, enforce production-branch lineage, commit and push a hotfix, or create hotfix pull requests back to production, development, and release branches.
 ---
 
 # Gitflow Hotfix
 
 Use this workflow for Gitflow repositories when a production hotfix must be made from a `hotfix/<branchname>` branch and then proposed back to production, development, and any active release branches.
+
+## Agent Compatibility
+
+These instructions are agent-neutral. Codex can load this file as a skill, and other AI coding agents such as GitHub Copilot, Claude Code, Gemini CLI, or repo-local automation can read `SKILL.md` directly and run the audit helper.
+
+When working outside Codex:
+
+- Treat every hard gate in this file as mandatory.
+- Run commands non-interactively whenever possible.
+- Read the agent instruction files used by the target repository before making changes. Common filenames include `AGENTS.md`, `.github/copilot-instructions.md`, `CLAUDE.md`, and `GEMINI.md`.
+- If the target agent has its own safety or approval policy, follow the stricter rule when it conflicts with this workflow.
 
 ## Hard Gates
 
@@ -57,7 +68,7 @@ The helper does not fetch, create branches, check out branches, or edit files.
      ```bash
      git fetch --prune origin
      ```
-   - Read repo-local rules first: `AGENTS.md`, `CONTRIBUTING.md`, and root README files.
+   - Read repo-local rules first: `AGENTS.md`, `.github/copilot-instructions.md`, `CLAUDE.md`, `GEMINI.md`, `CONTRIBUTING.md`, and root README files when present.
 
 2. Establish Gitflow.
    - Identify production as exactly one of `main` or `master`, unless the user supplies a repo-specific production branch.
