@@ -27,6 +27,7 @@ When working outside Codex:
 - Require hotfix branches to use `hotfix/<branchname>`.
 - Existing hotfix branches must be production-reachable and must not contain development-only history. If lineage is ambiguous or development-based, stop and ask the user.
 - Commit, push, and create PRs only while the current branch is the hotfix branch.
+- Do not create, switch through, or otherwise rely on an additional `git worktree` unless the user has explicitly confirmed that approach after you explain why it is needed, where it will be created, how it affects their usual checkout/IDE, and how it will be cleaned up.
 - Never force push unless the user explicitly approves it first.
 - If repo-local instructions conflict with the mandatory hotfix branch pattern, stop and ask the user.
 
@@ -64,6 +65,7 @@ The helper does not fetch, create branches, check out branches, or edit files. I
      ```bash
      git status --short
      ```
+   - If the current checkout has local changes and a separate `git worktree` seems useful to isolate the hotfix, stop before creating it. Ask the user whether they want a worktree, explain the reason, name the proposed path, and state that their IDE may need to open that path unless the worktree is later removed and the branch is switched into their usual checkout.
    - Refresh remote refs when network access is available:
      ```bash
      git fetch --prune origin
@@ -144,3 +146,4 @@ Stop and ask the user when:
 - Release branch targets are unknown.
 - Local branch naming policy conflicts with `hotfix/<branchname>`.
 - Any push would require history rewriting.
+- You are considering an additional `git worktree` for branch isolation, dirty-checkout avoidance, or parallel PR work.
