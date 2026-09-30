@@ -272,6 +272,22 @@ class GitflowHotfixAuditTest(unittest.TestCase):
             self.assertEqual(code, 0)
             self.assertTrue(payload["ok"])
 
+    def test_cisco_sbg_push_url_requires_jira(self) -> None:
+        """Enforce the Jira key when only the push URL is under cisco-sbg."""
+        with tempfile.TemporaryDirectory(dir="/private/tmp") as tmp:
+            root = Path(tmp)
+            repo = root / "cisco-sbg-push"
+            repo.mkdir()
+            init_repo(repo, "Gitflow process uses hotfix/ and release/ branches.\n")
+            add_remote(repo, root, "cisco-sbg-push-origin")
+            add_branch(repo, "develop", "develop.txt", "development branch\n")
+            run(["git", "remote", "set-url", "--push", "origin", "git@github.com:cisco-sbg/example.git"], repo)
+
+            code, payload = audit(repo, "--hotfix", "hotfix/fix-timeout")
+
+            self.assertEqual(code, 3)
+            self.assertTrue(payload["jira_required"])
+
 
 if __name__ == "__main__":
     unittest.main()

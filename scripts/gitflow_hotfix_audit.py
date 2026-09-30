@@ -204,9 +204,24 @@ def valid_jira_hotfix_name(branch: str) -> bool:
 
 
 def remote_requires_jira(remote: str, cwd: Path) -> bool:
-    """Return true when the remote URL is owned by an org that requires Jira keys."""
-    url = git_output(["remote", "get-url", remote], cwd)
-    return bool(url and JIRA_REQUIRED_OWNER_PATTERN.search(url))
+    """Return true when any remote fetch or push URL requires Jira keys.
+
+    Push URLs are checked as well because a remote can fetch from a mirror
+    while pushing to a cisco-sbg repository.
+
+    Args:
+        remote: Name of the git remote to inspect.
+        cwd: Repository working directory.
+
+    Returns:
+        True when any configured fetch or push URL matches a Jira-required owner.
+    """
+    urls: list[str] = []
+    for args in (["--all"], ["--push", "--all"]):
+        output = git_output(["remote", "get-url", *args, remote], cwd)
+        if output:
+            urls.extend(output.splitlines())
+    return any(JIRA_REQUIRED_OWNER_PATTERN.search(url) for url in urls)
 
 
 def detect_production_branch(
