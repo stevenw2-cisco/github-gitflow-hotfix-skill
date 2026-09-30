@@ -203,6 +203,75 @@ class GitflowHotfixAuditTest(unittest.TestCase):
             self.assertEqual(code, 3)
             self.assertFalse(payload["ok"])
 
+    def test_require_jira_rejects_hotfix_without_key(self) -> None:
+        """Reject a hotfix name without a Jira key when --require-jira is set."""
+        with tempfile.TemporaryDirectory(dir="/private/tmp") as tmp:
+            root = Path(tmp)
+            repo = root / "require-jira"
+            repo.mkdir()
+            init_repo(repo, "Gitflow process uses hotfix/ and release/ branches.\n")
+            add_remote(repo, root, "require-jira-origin")
+            add_branch(repo, "develop", "develop.txt", "development branch\n")
+
+            code, payload = audit(repo, "--hotfix", "hotfix/fix-timeout", "--require-jira")
+
+            self.assertEqual(code, 3)
+            self.assertTrue(payload["jira_required"])
+            self.assertIn("<KEY>-<number>", "\n".join(payload["errors"]))
+
+    def test_require_jira_accepts_keyed_hotfix(self) -> None:
+        """Accept hotfix/<KEY>-<n>_<description> when --require-jira is set."""
+        with tempfile.TemporaryDirectory(dir="/private/tmp") as tmp:
+            root = Path(tmp)
+            repo = root / "require-jira-ok"
+            repo.mkdir()
+            init_repo(repo, "Gitflow process uses hotfix/ and release/ branches.\n")
+            add_remote(repo, root, "require-jira-ok-origin")
+            add_branch(repo, "develop", "develop.txt", "development branch\n")
+
+            code, payload = audit(repo, "--hotfix", "hotfix/DISC-123_fix_timeout", "--require-jira")
+
+            self.assertEqual(code, 0)
+            self.assertTrue(payload["ok"])
+            self.assertTrue(payload["jira_required"])
+
+    def test_jira_not_required_by_default(self) -> None:
+        """Keep the plain hotfix/<name> rule for remotes outside cisco-sbg."""
+        with tempfile.TemporaryDirectory(dir="/private/tmp") as tmp:
+            root = Path(tmp)
+            repo = root / "no-jira"
+            repo.mkdir()
+            init_repo(repo, "Gitflow process uses hotfix/ and release/ branches.\n")
+            add_remote(repo, root, "no-jira-origin")
+            add_branch(repo, "develop", "develop.txt", "development branch\n")
+
+            code, payload = audit(repo, "--hotfix", "hotfix/fix-timeout")
+
+            self.assertEqual(code, 0)
+            self.assertFalse(payload["jira_required"])
+
+    def test_cisco_sbg_remote_requires_jira(self) -> None:
+        """Enforce the Jira key automatically for github.com/cisco-sbg remotes."""
+        with tempfile.TemporaryDirectory(dir="/private/tmp") as tmp:
+            root = Path(tmp)
+            repo = root / "cisco-sbg"
+            repo.mkdir()
+            init_repo(repo, "Gitflow process uses hotfix/ and release/ branches.\n")
+            add_remote(repo, root, "cisco-sbg-origin")
+            add_branch(repo, "develop", "develop.txt", "development branch\n")
+            # Point the fetch URL at a cisco-sbg path while keeping local refs for detection.
+            run(["git", "remote", "set-url", "origin", "git@github.com:cisco-sbg/example.git"], repo)
+
+            code, payload = audit(repo, "--hotfix", "hotfix/fix-timeout")
+
+            self.assertEqual(code, 3)
+            self.assertTrue(payload["jira_required"])
+
+            code, payload = audit(repo, "--hotfix", "hotfix/QQ-45_fix_timeout")
+
+            self.assertEqual(code, 0)
+            self.assertTrue(payload["ok"])
+
 
 if __name__ == "__main__":
     unittest.main()

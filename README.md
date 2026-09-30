@@ -2,12 +2,12 @@
 
 Reusable instructions and a read-only audit helper for AI agents handling GitHub hotfixes in repositories that use Gitflow.
 
-The core workflow lives in [`SKILL.md`](SKILL.md). Codex can load that file as a skill, while GitHub Copilot, Claude Code, Gemini CLI, and other AI coding agents can read it directly as repository guidance.
+The core workflow lives in [`SKILL.md`](SKILL.md). Any agent that supports `SKILL.md` skills can load it; others can read it directly as repository guidance. Shared rules come from the `agent-policy` skill; commits and PRs are delegated to `git-commit` and `pr-create`.
 
 ## What This Covers
 
 - Proving that a target repository uses Gitflow before starting hotfix work.
-- Requiring hotfix branches to use `hotfix/<branchname>`.
+- Requiring hotfix branches to use `hotfix/<branchname>`, or `hotfix/<KEY>-<number>_<description>` for Jira-tracked (`github.com/cisco-sbg`) repositories.
 - Ensuring existing hotfix branches are based on the production branch, usually `main` or `master`.
 - Creating missing hotfix branches from production.
 - Pushing one hotfix branch and creating PRs back to production, development, and any active release branches.
@@ -16,7 +16,7 @@ The core workflow lives in [`SKILL.md`](SKILL.md). Codex can load that file as a
 
 - `SKILL.md`: Agent-neutral workflow and hard gates.
 - `scripts/gitflow_hotfix_audit.py`: Read-only Git audit helper for Gitflow and hotfix lineage checks.
-- `agents/openai.yaml`: Optional OpenAI/Codex UI metadata.
+- `agents/openai.yaml`: Optional agent UI metadata.
 
 ## Audit Helper
 
@@ -31,28 +31,26 @@ Useful options:
 ```bash
 /path/to/github-gitflow-hotfix-skill/scripts/gitflow_hotfix_audit.py --hotfix hotfix/<branchname> --remote origin --json
 /path/to/github-gitflow-hotfix-skill/scripts/gitflow_hotfix_audit.py --hotfix hotfix/<branchname> --main main --develop develop
+/path/to/github-gitflow-hotfix-skill/scripts/gitflow_hotfix_audit.py --hotfix hotfix/DISC-123_fix_timeout --require-jira
 ```
+
+The Jira-keyed name is enforced automatically for `github.com/cisco-sbg` remotes and with `--require-jira` elsewhere.
 
 The helper does not fetch, create branches, check out branches, or edit files.
 
 ## Agent Notes
 
-- Codex: install or reference this directory as a skill.
-- GitHub Copilot: point the coding agent or chat context at `SKILL.md` before asking for hotfix work.
-- Claude Code: include `SKILL.md` in the working context and require the audit helper before branch actions.
-- Gemini CLI: include `SKILL.md` as repo guidance and run the audit helper before branch actions.
-
-All agents should stop and ask the user when Gitflow cannot be proven, hotfix lineage is ambiguous, release branches are unknown, or a push would require history rewriting.
+Load `SKILL.md` as a skill, or include it in the agent's context, and run the audit helper before branch actions. All agents should stop and ask the user when Gitflow cannot be proven, hotfix lineage is ambiguous, release branches are unknown, or a push would require history rewriting.
 
 ## Validation
 
-Validate the skill metadata with the skill validator available in your agent environment. In this author's local Codex setup that command is:
+Validate the skill metadata with your agent environment's skill validator, for example:
 
 ```bash
-python3.11 /Users/stevenw2/.codex/skills/.system/skill-creator/scripts/quick_validate.py .
+python3 <skill-creator>/scripts/quick_validate.py .
 ```
 
-If that path does not exist, replace it with your local Codex skill validator path or skip this check for non-Codex usage.
+Skip this check if no validator is available.
 
 Compile-check the helper without writing bytecode into the repo:
 

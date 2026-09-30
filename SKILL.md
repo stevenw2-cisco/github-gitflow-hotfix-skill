@@ -1,22 +1,13 @@
 ---
 name: github-gitflow-hotfix-skill
-description: Manage GitHub hotfix workflows for repositories that use Gitflow. Use when an AI coding agent needs to verify Gitflow, create or validate hotfix branches, enforce production-branch lineage, commit and push a hotfix, or create hotfix pull requests back to production, development, and release branches.
+description: Manage GitHub hotfix workflows for repositories that use Gitflow — prove Gitflow, create or validate a production-based hotfix branch (hotfix/KEY-n_desc with a Jira key in Jira-tracked repos), then commit, push, and open hotfix PRs back to production, development, and release branches. Use when the user asks for a Gitflow hotfix or hotfix PRs. Not for ordinary feature PRs (use pr-create) or repos that do not use Gitflow.
 ---
 
 # Gitflow Hotfix
 
-Use this workflow for Gitflow repositories when a production hotfix must be made from a `hotfix/<branchname>` branch and then proposed back to production, development, and any active release branches.
+Use this workflow for Gitflow repositories when a production hotfix must be made from a hotfix branch and then proposed back to production, development, and any active release branches.
 
-## Agent Compatibility
-
-These instructions are agent-neutral. Codex can load this file as a skill, and other AI coding agents such as GitHub Copilot, Claude Code, Gemini CLI, or repo-local automation can read `SKILL.md` directly and run the audit helper.
-
-When working outside Codex:
-
-- Treat every hard gate in this file as mandatory.
-- Run commands non-interactively whenever possible.
-- Read the agent instruction files used by the target repository before making changes. Common filenames include `AGENTS.md`, `.github/copilot-instructions.md`, `CLAUDE.md`, and `GEMINI.md`.
-- If the target agent has its own safety or approval policy, follow the stricter rule when it conflicts with this workflow.
+Git, attribution, and validation rules come from the `agent-policy` skill (`references/git.md`, `references/attribution.md`, `references/validation.md`). This skill adds the Gitflow-specific steps. Commits go through `git-commit`; PRs go through `pr-create`.
 
 ## Hard Gates
 
@@ -24,11 +15,11 @@ When working outside Codex:
 - Do not assume Gitflow from a lone `develop` branch.
 - Require a known production branch, usually `main` or `master`.
 - Require a known development branch that differs from production, usually `develop`.
-- Require hotfix branches to use `hotfix/<branchname>`.
+- Require hotfix branches to use `hotfix/<branchname>`. In Jira-tracked repositories (`github.com/cisco-sbg`), the name must be `hotfix/<KEY>-<number>_<description>` and match the branch regex in `agent-policy` → `references/git.md`, for example `hotfix/DISC-123_fix_timeout`. Ask for the Jira key; never invent one.
 - Existing hotfix branches must be production-reachable and must not contain development-only history. If lineage is ambiguous or development-based, stop and ask the user.
 - Commit, push, and create PRs only while the current branch is the hotfix branch.
-- Do not create, switch through, or otherwise rely on an additional `git worktree` unless the user has explicitly confirmed that approach after you explain why it is needed, where it will be created, how it affects their usual checkout/IDE, and how it will be cleaned up.
-- Never force push unless the user explicitly approves it first.
+- Worktrees and alternate checkouts follow `git-worktree-safety`.
+- Never force push, and never push directly to `main`, `master`, `develop`, or `release/*`, without explicit approval (`agent-policy` → `references/git.md`). A non-force push of the hotfix branch itself is a safe operation.
 - If repo-local instructions conflict with the mandatory hotfix branch pattern, stop and ask the user.
 
 ## Audit Helper
@@ -44,7 +35,10 @@ Useful options:
 ```bash
 scripts/gitflow_hotfix_audit.py --hotfix hotfix/<branchname> --remote origin --json
 scripts/gitflow_hotfix_audit.py --hotfix hotfix/<branchname> --main main --develop develop
+scripts/gitflow_hotfix_audit.py --hotfix hotfix/DISC-123_fix_timeout --require-jira
 ```
+
+The helper enforces the Jira-keyed name automatically when the remote URL is under `github.com/cisco-sbg`. Pass `--require-jira` to enforce it for any other remote.
 
 Exit codes:
 
@@ -52,7 +46,7 @@ Exit codes:
 | --- | --- |
 | 0 | Gitflow was proven and the hotfix branch is either absent or has valid lineage. |
 | 2 | Gitflow, production branch, or development branch could not be determined. |
-| 3 | The hotfix branch name is invalid. |
+| 3 | The hotfix branch name is invalid (including a missing Jira key when one is required). |
 | 4 | Required git repository data could not be read. |
 | 5 | The hotfix branch exists but does not satisfy production lineage. |
 
@@ -65,7 +59,7 @@ The helper does not fetch, create branches, check out branches, or edit files. I
      ```bash
      git status --short
      ```
-   - If the current checkout has local changes and a separate `git worktree` seems useful to isolate the hotfix, stop before creating it. Ask the user whether they want a worktree, explain the reason, name the proposed path, and state that their IDE may need to open that path unless the worktree is later removed and the branch is switched into their usual checkout.
+   - If the checkout is dirty, stop and ask. If a separate worktree seems useful, follow `git-worktree-safety` before creating one.
    - Refresh remote refs when network access is available:
      ```bash
      git fetch --prune origin
@@ -80,7 +74,7 @@ The helper does not fetch, create branches, check out branches, or edit files. I
    - If signals are missing or mixed, stop and ask the user to confirm production and development branches.
 
 3. Resolve the hotfix branch.
-   - If the user gives only a suffix, use `hotfix/<suffix>`.
+   - If the user gives only a suffix, use `hotfix/<suffix>`. In Jira-tracked repos the suffix must be `<KEY>-<number>_<description>`; if the key is missing, ask for it.
    - Run the audit helper for the final branch name.
    - If the branch exists locally, switch to it only from a clean worktree:
      ```bash
@@ -98,23 +92,21 @@ The helper does not fetch, create branches, check out branches, or edit files. I
 
 4. Apply and validate the fix.
    - Make the minimum hotfix changes on the hotfix branch.
-   - Follow repository language conventions and doc/comment standards.
-   - Detect and run applicable validation before committing. Prefer Makefile targets over direct tool commands when present.
-   - If validation tooling is absent, report that explicitly.
+   - Follow `agent-policy` → `references/coding-standards.md`.
+   - Run applicable validation per `agent-policy` → `references/validation.md`, preferring Makefile targets. If validation tooling is absent, report that explicitly.
 
 5. Commit and push.
    - Reconfirm the current branch:
      ```bash
      git branch --show-current
      ```
-   - If it is not the expected `hotfix/<branchname>`, stop.
-   - Stage only intended files, commit with the repository's commit convention, and push:
+   - If it is not the expected hotfix branch, stop.
+   - Commit with the `git-commit` skill. It handles identity, the branch gate, hooks, and the `Co-Authored-By:` trailer.
+   - Push the hotfix branch without force. This is a safe operation and needs no confirmation:
      ```bash
-     git add <intended-files>
-     git status --short
-     git commit -m "<message>"
-     git push -u origin hotfix/<branchname>
+     git push -u origin <hotfix-branch>
      ```
+   - Never push to production, development, or release branches directly without explicit approval.
 
 6. Create pull requests.
    - Ask the user to list release branches, or confirm that there are none.
@@ -122,18 +114,14 @@ The helper does not fetch, create branches, check out branches, or edit files. I
      - production, such as `main` or `master`
      - development, such as `develop`
      - each user-specified release branch
-   - Use `.github/pull_request_template.md` exactly when it exists. Materialize it into an editable body file, fill every required placeholder, then pass that file to `gh`:
+   - Create each PR through the `pr-create` skill with an explicit base, one per target. It enforces `.github/pull_request_template.md`, runs validation, and adds the attribution footer from `agent-policy` → `references/attribution.md` and the Jira comment.
+   - If `pr-create` is unavailable, write the filled body non-interactively (never open `$EDITOR`), end it with the attribution footer, and use explicit bases and heads:
      ```bash
-     cp .github/pull_request_template.md /tmp/hotfix-pr-body.md
-     ${EDITOR:-vi} /tmp/hotfix-pr-body.md
+     gh pr create --base main --head <hotfix-branch> --title "<title>" --body-file <body-file>
+     gh pr create --base develop --head <hotfix-branch> --title "<title>" --body-file <body-file>
+     gh pr create --base release/<name> --head <hotfix-branch> --title "<title>" --body-file <body-file>
      ```
-   - Use explicit bases and heads:
-     ```bash
-     gh pr create --base main --head hotfix/<branchname> --title "<title>" --body-file /tmp/hotfix-pr-body.md
-     gh pr create --base develop --head hotfix/<branchname> --title "<title>" --body-file /tmp/hotfix-pr-body.md
-     gh pr create --base release/<name> --head hotfix/<branchname> --title "<title>" --body-file /tmp/hotfix-pr-body.md
-     ```
-   - If the direct development PR conflicts, keep the production PR as the source of truth. After the production PR merges, create a separate merge-forward branch from development that merges production back into development, then open that PR to development.
+   - If the direct development PR conflicts, keep the production PR as the source of truth. After the production PR merges, create a separate merge-forward branch from development (named per `agent-policy` → `references/git.md`) that merges production back into development, then open that PR to development via `pr-create`.
    - Return every PR URL and note which target branch each PR uses.
 
 ## Stop And Ask
@@ -144,6 +132,6 @@ Stop and ask the user when:
 - Production or development branch detection is ambiguous.
 - The requested hotfix branch exists but is not based on production.
 - Release branch targets are unknown.
-- Local branch naming policy conflicts with `hotfix/<branchname>`.
-- Any push would require history rewriting.
-- You are considering an additional `git worktree` for branch isolation, dirty-checkout avoidance, or parallel PR work.
+- Local branch naming policy conflicts with the required hotfix branch pattern, or the Jira key is unknown.
+- Any push would require history rewriting, or would go directly to a production, development, or release branch.
+- You are considering an additional worktree (see `git-worktree-safety`).

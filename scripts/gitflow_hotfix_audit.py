@@ -4,6 +4,11 @@
 Usage:
     scripts/gitflow_hotfix_audit.py --hotfix hotfix/<branchname>
     scripts/gitflow_hotfix_audit.py --hotfix hotfix/<branchname> --json
+    scripts/gitflow_hotfix_audit.py --hotfix hotfix/DISC-123_fix_timeout --require-jira
+
+A Jira key in the hotfix name (hotfix/<KEY>-<n>_<description>) is enforced
+automatically when the remote is under github.com/cisco-sbg, or always with
+--require-jira.
 """
 
 from __future__ import annotations
@@ -25,6 +30,9 @@ GITFLOW_DOCUMENT_PATTERNS = (
     re.compile(r"\brelease/", re.IGNORECASE),
 )
 HOTFIX_PATTERN = re.compile(r"^hotfix/[A-Za-z0-9._/-]+$")
+# Mirrors the hotfix form of the agent-policy branch regex (references/git.md).
+JIRA_HOTFIX_PATTERN = re.compile(r"^hotfix/(DISC|QQ|PAAS)-[0-9]+_[A-Za-z0-9_]+$")
+JIRA_REQUIRED_OWNER_PATTERN = re.compile(r"github\.com[:/]cisco-sbg/", re.IGNORECASE)
 PRODUCTION_CANDIDATES = ("main", "master")
 DEVELOPMENT_CANDIDATES = ("develop", "development", "dev")
 FETCH_HEAD_MAX_AGE_SECONDS = 24 * 60 * 60
@@ -44,6 +52,7 @@ class AuditResult:
     remote_default_branch: str | None = None
     hotfix_branch: str | None = None
     hotfix_valid_name: bool = False
+    jira_required: bool = False
     hotfix_exists_local: bool = False
     hotfix_exists_remote: bool = False
     hotfix_ref: str | None = None
@@ -71,6 +80,7 @@ class AuditResult:
             "remote_default_branch": self.remote_default_branch,
             "hotfix_branch": self.hotfix_branch,
             "hotfix_valid_name": self.hotfix_valid_name,
+            "jira_required": self.jira_required,
             "hotfix_exists_local": self.hotfix_exists_local,
             "hotfix_exists_remote": self.hotfix_exists_remote,
             "hotfix_ref": self.hotfix_ref,
@@ -186,6 +196,17 @@ def valid_hotfix_name(branch: str) -> bool:
         and ".." not in branch
         and all(part not in invalid_parts for part in branch.split("/"))
     )
+
+
+def valid_jira_hotfix_name(branch: str) -> bool:
+    """Return true when the branch follows hotfix/<KEY>-<number>_<description>."""
+    return bool(JIRA_HOTFIX_PATTERN.match(branch))
+
+
+def remote_requires_jira(remote: str, cwd: Path) -> bool:
+    """Return true when the remote URL is owned by an org that requires Jira keys."""
+    url = git_output(["remote", "get-url", remote], cwd)
+    return bool(url and JIRA_REQUIRED_OWNER_PATTERN.search(url))
 
 
 def detect_production_branch(
@@ -355,9 +376,14 @@ def audit(args: argparse.Namespace) -> AuditResult:
         result.fail(2, "No strong Gitflow evidence was found.")
         return result
 
+    result.jira_required = args.require_jira or remote_requires_jira(remote, repo_root)
     result.hotfix_valid_name = valid_hotfix_name(args.hotfix)
     if not result.hotfix_valid_name:
         result.fail(3, "Hotfix branch must match hotfix/<branchname>.")
+        return result
+    if result.jira_required and not valid_jira_hotfix_name(args.hotfix):
+        result.hotfix_valid_name = False
+        result.fail(3, "Hotfix branch must match hotfix/<KEY>-<number>_<description> with KEY DISC, QQ, or PAAS.")
         return result
 
     result.hotfix_exists_local, result.hotfix_exists_remote = branch_exists(args.hotfix, remote, repo_root)
@@ -383,6 +409,7 @@ def print_human(result: AuditResult) -> None:
     print(f"Development branch: {result.development_branch or 'unknown'}")
     print(f"Remote default branch: {result.remote_default_branch or 'unknown'}")
     print(f"Hotfix branch: {result.hotfix_branch}")
+    print(f"Jira key required: {result.jira_required}")
     print(f"Hotfix exists local: {result.hotfix_exists_local}")
     print(f"Hotfix exists remote: {result.hotfix_exists_remote}")
     print(f"Lineage: {result.lineage}")
@@ -407,6 +434,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--remote", default="origin", help="Remote name to inspect. Defaults to origin.")
     parser.add_argument("--main", help="Explicit production branch, such as main or master.")
     parser.add_argument("--develop", help="Explicit development branch, such as develop.")
+    parser.add_argument(
+        "--require-jira",
+        action="store_true",
+        help="Require hotfix/<KEY>-<number>_<description>. Enabled automatically for github.com/cisco-sbg remotes.",
+    )
     parser.add_argument("--json", action="store_true", help="Print machine-readable JSON.")
     return parser.parse_args()
 
