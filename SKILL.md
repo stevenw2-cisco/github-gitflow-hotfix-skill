@@ -122,7 +122,13 @@ The helper does not fetch, create branches, check out branches, or edit files. I
      gh pr create --base release/<name> --head <hotfix-branch> --title "<title>" --body-file <body-file>
      ```
    - If the direct development PR conflicts, keep the production PR as the source of truth. After the production PR merges, create a separate merge-forward branch from development (named per `agent-policy` → `references/git.md`) that merges production back into development, then open that PR to development via `pr-create`.
-   - Return every PR URL and note which target branch each PR uses.
+   - Return every PR URL and note which target branch each PR uses. When the hotfix spans multiple DCs (or repos), group the URLs under a heading per DC, annotating the production and development PRs with their target branch and leaving the docs PR unannotated:
+     ```markdown
+     ## <dc>
+     <master pr url> <<-- master
+     <develop pr url> <<-- develop
+     <docs pr url>
+     ```
 
 ## Stop And Ask
 
