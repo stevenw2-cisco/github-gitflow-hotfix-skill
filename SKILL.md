@@ -114,7 +114,7 @@ The helper does not fetch, create branches, check out branches, or edit files. I
      - production, such as `main` or `master`
      - development, such as `develop`
      - each user-specified release branch
-   - Create each PR through the `pr-create` skill with an explicit base, one per target. It enforces `.github/pull_request_template.md`, runs validation, and adds the attribution footer from `agent-policy` → `references/attribution.md` and the Jira comment.
+   - Create each PR through the `pr-create` skill with an explicit base, one per target. It enforces the repository's PR template (wherever GitHub finds it), runs validation, and adds the attribution footer from `agent-policy` → `references/attribution.md` and the Jira comment.
    - If `pr-create` is unavailable, write the filled body non-interactively (never open `$EDITOR`), end it with the attribution footer, and use explicit bases and heads:
      ```bash
      gh pr create --base main --head <hotfix-branch> --title "<title>" --body-file <body-file>
